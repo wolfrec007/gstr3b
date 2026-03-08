@@ -11,6 +11,7 @@ import io
 import sys
 from pathlib import Path
 from datetime import datetime
+import re
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -19,6 +20,11 @@ from extractors.gstr3b_extractor import (
     extract_gstr3b_tables,
     build_consolidation_excel,
     GSTR3B_SECTIONS,
+)
+from extractors.gstr1_extractor import (
+    extract_gstr1_tables,
+    build_gstr1_consolidation_excel,
+    GSTR1_SECTIONS,
 )
 
 # ───────── Page Config ─────────
@@ -195,7 +201,7 @@ def render_upload_page():
     with col_form:
         form_type = st.selectbox(
             "GSTR Form Type",
-            ["GSTR-3B (Monthly Return)"],
+            ["GSTR-3B (Monthly Return)", "GSTR-1 (Outward Supplies)"],
             index=0,
         )
     with col_engine:
@@ -290,8 +296,15 @@ def render_processing_page():
 
                 try:
                     use_tabula = st.session_state.engine == "tabula"
-                    result = extract_gstr3b_tables(upload["path"], use_tabula=use_tabula)
+                    is_gstr1 = "GSTR-1" in upload["form_type"]
+                    
+                    if is_gstr1:
+                        result = extract_gstr1_tables(upload["path"], use_tabula=use_tabula)
+                    else:
+                        result = extract_gstr3b_tables(upload["path"], use_tabula=use_tabula)
+                    
                     result["filename"] = upload["filename"]
+                    result["form_type"] = upload["form_type"]
                     result["upload_idx"] = i
                     st.session_state.extractions.append(result)
                     upload["status"] = "completed"
@@ -375,11 +388,29 @@ def render_preview_page():
         unsafe_allow_html=True,
     )
 
+    is_gstr1 = "GSTR-1" in ext.get("form_type", "")
+    
     # Section tabs
     all_sections = []
-    for sid in ["3.1", "3.1.1", "3.1.2", "4", "5", "5.1", "6"]:
-        if sid in sections:
-            all_sections.append((sid, sections[sid]))
+    
+    if is_gstr1:
+        # Maintain visual ordering for GSTR-1
+        main_order = ["4A", "4B", "5", "6A", "6B", "6C", "7", "8", "12", "13", "14", "15"]
+        amend_order = [
+            "9A-B2B", "9A-B2B-RC", "9A-B2CL", "9A-EXP", "9A-SEZ", "9A-DE",
+            "9B-CDNR", "9B-CDNUR", "9C-CDNRA", "9C-CDNURA",
+            "10", "11A", "11B", "11A-Amend", "11B-Amend", "14A",
+            "15A-Reg", "15A-Unreg", "Total"
+        ]
+        s_order = main_order + amend_order
+        for sid in s_order:
+            if sid in sections:
+                all_sections.append((sid, sections[sid]))
+    else:
+        for sid in ["3.1", "3.1.1", "3.1.2", "4", "5", "5.1", "6", "Breakup"]:
+            if sid in sections:
+                all_sections.append((sid, sections[sid]))
+                
     for ut in unclassified:
         all_sections.append(("other", ut))
 
@@ -435,22 +466,48 @@ def render_preview_page():
         if st.button("⬇️ Export as Excel"):
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                for sid in ["3.1", "3.1.1", "3.1.2", "4", "5", "5.1", "6"]:
+                # Use same ordering from tabs above
+                s_order = []
+                if "GSTR-1" in ext.get("form_type", ""):
+                    main_order = ["4A", "4B", "5", "6A", "6B", "6C", "7", "8", "12", "13", "14", "15"]
+                    amend_order = [
+                        "9A-B2B", "9A-B2B-RC", "9A-B2CL", "9A-EXP", "9A-SEZ", "9A-DE",
+                        "9B-CDNR", "9B-CDNUR", "9C-CDNRA", "9C-CDNURA",
+                        "10", "11A", "11B", "11A-Amend", "11B-Amend", "14A",
+                        "15A-Reg", "15A-Unreg", "Total"
+                    ]
+                    s_order = main_order + amend_order
+                else:
+                    s_order = ["3.1", "3.1.1", "3.1.2", "4", "5", "5.1", "6", "Breakup"]
+                    
+                for sid in s_order:
                     if sid in sections:
                         rows = sections[sid].get("rows", [])
                         if rows:
                             df = pd.DataFrame(rows)
-                            df.to_excel(writer, sheet_name=sid, index=False)
+                            # Truncate sheet name explicitly for safety
+                            sheet_title = GSTR1_SECTIONS.get(sid, {}).get("title", sid) if "GSTR-1" in ext.get("form_type", "") else sid
+                            if sid == "Total": sheet_title = "Total Liability"
+                            sheet_title = re.sub(r'[\\/*?:\[\]]', '_', sheet_title)
+                            df.to_excel(writer, sheet_name=sheet_title[:31], index=False)
                 for ut in unclassified:
                     rows = ut.get("rows", [])
                     if rows:
                         df = pd.DataFrame(rows)
-                        df.to_excel(writer, sheet_name=ut.get("name", "Other")[:31], index=False)
+                        ut_name = re.sub(r'[\\/*?:\[\]]', '_', ut.get("name", "Other"))
+                        df.to_excel(writer, sheet_name=ut_name[:31], index=False)
             output.seek(0)
+            
+            form_name = "GSTR1" if is_gstr1 else "GSTR3B"
+            gstin = meta.get("gstin", "UnknownGSTIN")
+            period = meta.get("period", "").replace(" ", "")
+            year = meta.get("year", "").replace("-", "")
+            period_str = f"_{period}{year}" if period or year else ""
+            
             st.download_button(
                 "📥 Download Excel",
                 output.getvalue(),
-                file_name=f"{ext['filename'].replace('.pdf', '')}_extracted.xlsx",
+                file_name=f"{form_name}_{gstin}{period_str}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
@@ -459,7 +516,20 @@ def render_preview_page():
             import zipfile
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w") as zf:
-                for sid in ["3.1", "3.1.1", "3.1.2", "4", "5", "5.1", "6"]:
+                s_order = []
+                if "GSTR-1" in ext.get("form_type", ""):
+                    main_order = ["4A", "4B", "5", "6A", "6B", "6C", "7", "8", "12", "13", "14", "15"]
+                    amend_order = [
+                        "9A-B2B", "9A-B2B-RC", "9A-B2CL", "9A-EXP", "9A-SEZ", "9A-DE",
+                        "9B-CDNR", "9B-CDNUR", "9C-CDNRA", "9C-CDNURA",
+                        "10", "11A", "11B", "11A-Amend", "11B-Amend", "14A",
+                        "15A-Reg", "15A-Unreg", "Total"
+                    ]
+                    s_order = main_order + amend_order
+                else:
+                    s_order = ["3.1", "3.1.1", "3.1.2", "4", "5", "5.1", "6", "Breakup"]
+                    
+                for sid in s_order:
                     if sid in sections:
                         rows = sections[sid].get("rows", [])
                         if rows:
@@ -470,7 +540,7 @@ def render_preview_page():
             st.download_button(
                 "📥 Download CSV Zip",
                 zip_buffer.getvalue(),
-                file_name=f"{ext['filename'].replace('.pdf', '')}_extracted.zip",
+                file_name=f"{form_name}_{gstin}{period_str}.zip",
                 mime="application/zip",
             )
 
@@ -533,7 +603,7 @@ def render_consolidation_page():
         sections = ext.get("sections", {})
         sections_str = ", ".join(f"§{s}" for s in sections.keys())
         st.markdown(
-            f"**{i+1}. {ext.get('filename', 'Unknown')}** — "
+            f"**{i+1}. {ext.get('filename', 'Unknown')}** (`{ext.get('form_type', 'Unknown')}`) — "
             f"GSTIN: `{meta.get('gstin', 'N/A')}`, "
             f"Period: {meta.get('period', '?')} {meta.get('year', '')}, "
             f"Sections: {sections_str}"
@@ -541,19 +611,32 @@ def render_consolidation_page():
 
     st.markdown("---")
 
-    # Consolidation button
-    if st.button("📊 Create Consolidated Report", type="primary"):
-        with st.spinner("Building consolidated Excel..."):
-            output_path = str(EXPORT_DIR / "GST_consolidated.xlsx")
-            try:
-                build_consolidation_excel(
-                    st.session_state.extractions,
-                    output_path,
-                )
-                st.session_state.consolidated = output_path
-                st.success("✅ Consolidated report created!")
-            except Exception as e:
-                st.error(f"❌ Consolidation failed: {str(e)}")
+    # Consolidation buttons (group by form type first to ensure clean consolidation)
+    gstr1_exts = [e for e in st.session_state.extractions if "GSTR-1" in e.get("form_type", "")]
+    gstr3b_exts = [e for e in st.session_state.extractions if "GSTR-3B" in e.get("form_type", "")]
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📊 Create GSTR-3B Consolidation", type="primary", disabled=not gstr3b_exts):
+            with st.spinner("Building GSTR-3B consolidated Excel..."):
+                output_path = str(EXPORT_DIR / "GSTR3B_consolidated.xlsx")
+                try:
+                    build_consolidation_excel(gstr3b_exts, output_path)
+                    st.session_state.consolidated = output_path
+                    st.success("✅ GSTR-3B Consolidated report created!")
+                except Exception as e:
+                    st.error(f"❌ Consolidation failed: {str(e)}")
+                    
+    with col2:
+        if st.button("📊 Create GSTR-1 Consolidation", type="primary", disabled=not gstr1_exts):
+            with st.spinner("Building GSTR-1 consolidated Excel..."):
+                output_path = str(EXPORT_DIR / "GSTR1_consolidated.xlsx")
+                try:
+                    build_gstr1_consolidation_excel(gstr1_exts, output_path)
+                    st.session_state.consolidated = output_path
+                    st.success("✅ GSTR-1 Consolidated report created!")
+                except Exception as e:
+                    st.error(f"❌ Consolidation failed: {str(e)}")
 
     # Download consolidated file
     if st.session_state.consolidated and os.path.exists(st.session_state.consolidated):
@@ -562,10 +645,24 @@ def render_consolidation_page():
         with open(st.session_state.consolidated, "rb") as f:
             excel_data = f.read()
 
+        # Determine filename dynamically based on report type and GSTIN
+        form_name = "GSTR3B" if "GSTR3B" in st.session_state.consolidated else "GSTR1"
+        exts_to_check = gstr3b_exts if form_name == "GSTR3B" else gstr1_exts
+        gstins = list({e.get("metadata", {}).get("gstin", "") for e in exts_to_check if e.get("metadata", {}).get("gstin")})
+        
+        if len(gstins) == 1:
+            gstin_str = gstins[0]
+        elif len(gstins) > 1:
+            gstin_str = "MultipleGSTINs"
+        else:
+            gstin_str = "UnknownGSTIN"
+            
+        download_name = f"Consolidated_{form_name}_{gstin_str}.xlsx"
+
         st.download_button(
             "📥 Download Consolidated Excel",
             excel_data,
-            file_name="GST_consolidated.xlsx",
+            file_name=download_name,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
         )
