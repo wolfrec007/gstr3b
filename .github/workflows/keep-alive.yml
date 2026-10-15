@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Ping Render URL
         run: |
-          URL="https://gstr3b-converter.onrender.com/"
+          URL="https://skilledsite.onrender.com/"
           echo "Pinging $URL ..."
           RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$URL" || echo "000")
           echo "HTTP Status: $RESPONSE"

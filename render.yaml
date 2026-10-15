@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: gstr3b-converter
+    name: skilledsite
     runtime: docker
     repo: https://github.com/wolfrec007/gstr3b
     branch: main
