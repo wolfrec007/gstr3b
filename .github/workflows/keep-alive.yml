@@ -1,0 +1,34 @@
+name: Keep Render Alive
+
+on:
+  schedule:
+    # Runs every 10 minutes
+    - cron: '*/10 * * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  ping:
+    name: Ping Render Service
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping Render URL
+        run: |
+          URL="https://gstr3b-converter.onrender.com/"
+          echo "Pinging $URL ..."
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$URL" || echo "000")
+          echo "HTTP Status: $RESPONSE"
+          
+          if [ "$RESPONSE" = "200" ]; then
+            echo "✅ Service is awake"
+          elif [ "$RESPONSE" = "000" ]; then
+            echo "❌ Connection failed (timeout or DNS)"
+            exit 1
+          elif [ "$RESPONSE" = "502" ] || [ "$RESPONSE" = "503" ] || [ "$RESPONSE" = "504" ]; then
+            echo "⚠️ Service waking up (HTTP $RESPONSE) - this is normal on free tier"
+          else
+            echo "⚠️ Unexpected status: $RESPONSE"
+          fi
+
+      - name: Log timestamp
+        run: echo "Ping completed at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
