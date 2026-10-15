@@ -69,7 +69,33 @@ st.markdown("""
         --bg: #F8FAFC;
         --card: #FFFFFF;
         --text: #1E293B;
-        --muted: #94A3B8;
+        --muted: #64748B;
+    }
+
+    /* Main application surface and readable text */
+    [data-testid="stAppViewContainer"] {
+        background: #F8FAFC;
+    }
+    [data-testid="stAppViewContainer"] main {
+        color: #172033;
+    }
+    [data-testid="stAppViewContainer"] main [data-testid="stMarkdownContainer"] p,
+    [data-testid="stAppViewContainer"] main [data-testid="stMarkdownContainer"] h1,
+    [data-testid="stAppViewContainer"] main [data-testid="stMarkdownContainer"] h2,
+    [data-testid="stAppViewContainer"] main [data-testid="stMarkdownContainer"] h3,
+    [data-testid="stAppViewContainer"] main label,
+    [data-testid="stAppViewContainer"] main [data-testid="stWidgetLabel"] p {
+        color: #172033;
+    }
+    [data-testid="stAppViewContainer"] main [style*="color:#94A3B8"],
+    [data-testid="stAppViewContainer"] main [style*="color: #94A3B8"] {
+        color: #475569 !important;
+    }
+    [data-testid="stAppViewContainer"] main input,
+    [data-testid="stAppViewContainer"] main textarea,
+    [data-testid="stAppViewContainer"] main [data-baseweb="select"] > div {
+        color: #172033;
+        background: #FFFFFF;
     }
 
     /* Card containers */
