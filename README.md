@@ -17,6 +17,7 @@ short_description: GSTR-3B PDF to Excel Converter with GSTR-1 Reconciliation
 [![GitHub Actions](https://img.shields.io/github/actions/workflow/status/wolfrec007/gstr3b/keep-alive.yml?branch=main&label=Keep%20Alive&style=for-the-badge&logo=githubactions)](https://github.com/wolfrec007/gstr3b/actions/workflows/keep-alive.yml)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.57-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://streamlit.io)
+[![Reco Feature](https://img.shields.io/badge/Reco-GSTR--1%20vs%203B-FF6B35?style=for-the-badge&logo=databricks&logoColor=white)](https://skilledsite.onrender.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
 ---
@@ -37,8 +38,21 @@ short_description: GSTR-3B PDF to Excel Converter with GSTR-1 Reconciliation
 | **GSTR-1 Extraction** | All sections (4A–15, amendments, B2B, B2CL, exports, SEZ, deemed exports) |
 | **Dual Engine** | `pdfplumber` (fast, pure Python) or `tabula-py` (accurate, needs Java) |
 | **Yearly Consolidation** | Merge monthly returns into single Excel with month-wise sheets |
-| **GSTR-1 vs 3B Reconciliation** | Compare outward supplies, configurable tolerance, Excel download |
+| **🔍 GSTR-1 vs 3B Reconciliation (Reco)** | **NEW: Compare outward supplies (GSTR-1) vs Table 3.1 (GSTR-3B) by filing period — configurable rupee tolerance, side-by-side diff view, Excel download** |
 | **Multi-format Export** | Excel (multi-sheet), CSV (zipped), per-file or consolidated |
+
+---
+
+### 🔍 Reconciliation (Reco) — Key Capabilities
+
+| Capability | Details |
+|------------|---------|
+| **Match by Period** | Auto-pairs GSTR-1 & GSTR-3B extractions for same GSTIN + filing period |
+| **Compare Sections** | GSTR-1 outward supply sections (4A, 4B, 5, 6A–6C, 7, 8) vs GSTR-3B Table 3.1 |
+| **Metrics Compared** | Taxable Value, IGST, CGST, SGST/UTGST, Cess |
+| **Tolerance** | Configurable rupee threshold (default ₹1) — mark as "Match" or "Mismatch" |
+| **Output** | Side-by-side comparison table + summary + downloadable Excel report |
+| **Access** | Via **Perform Reco** page in sidebar (after processing both form types) |
 
 ---
 
@@ -91,8 +105,14 @@ docker run -p 7860:7860 gstr3b
 - **Preview** page: View tables by section, export single file as Excel/CSV
 - **Consolidation** page: Merge multiple months → Download consolidated Excel
 
-### 4. Reconcile (GSTR-1 vs 3B)
-- **Perform Reco** page: Select matching periods → Compare → Download diff report
+### 4. Reconcile (GSTR-1 vs 3B) — **Reco Feature**
+- **Prerequisite:** Process at least one GSTR-1 and one GSTR-3B PDF for the **same GSTIN + filing period**
+- Go to **Perform Reco** page (sidebar)
+- Select matching period pairs from the dropdown
+- Adjust **tolerance** (₹) if needed — rows within tolerance = "Match"
+- Review **side-by-side comparison**: GSTR-1 value vs GSTR-3B value vs Difference
+- Click **Download Excel Report** for detailed diff with summary sheet
+- **Covers:** GSTR-1 sections 4A, 4B, 5, 6A, 6B, 6C, 7, 8 vs GSTR-3B Table 3.1
 
 ---
 
