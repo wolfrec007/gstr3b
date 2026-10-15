@@ -9,6 +9,7 @@ import os
 import json
 import io
 import sys
+import uuid
 from pathlib import Path
 from datetime import datetime
 import re
@@ -26,6 +27,9 @@ from extractors.gstr1_extractor import (
     build_gstr1_consolidation_excel,
     GSTR1_SECTIONS,
 )
+from screens.reconcile_screen import render as render_reconciliation_page
+
+APP_VERSION = "3.1.0"
 
 # ───────── Page Config ─────────
 st.set_page_config(
@@ -158,6 +162,23 @@ st.markdown("""
         padding: 0.5rem 1rem;
         font-size: 0.85rem;
     }
+
+    /* Reconciliation screen contrast */
+    .reco-title {
+        color: #172033;
+        margin-bottom: 0.25rem;
+    }
+    .reco-help {
+        color: #475569;
+        margin-top: 0;
+    }
+    .reco-panel {
+        background: #F8FAFC;
+        border: 1px solid #CBD5E1;
+        border-radius: 8px;
+        padding: 1rem;
+        min-height: 11rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -165,7 +186,7 @@ st.markdown("""
 # ───────── Sidebar ─────────
 with st.sidebar:
     st.markdown("## 📄 GSTR Utilities v3")
-    st.caption("Section-aware extraction")
+    st.caption(f"Version {APP_VERSION} · Section-aware extraction")
     st.markdown("---")
 
     nav_items = {
@@ -173,6 +194,7 @@ with st.sidebar:
         "Processing": "⚙️",
         "Preview": "📊",
         "Consolidation": "📅",
+        "Perform Reco": "🔎",
     }
     for page_name, icon in nav_items.items():
         is_current = st.session_state.page == page_name
@@ -205,11 +227,17 @@ def render_upload_page():
             index=0,
         )
     with col_engine:
+        is_gstr1_form = "GSTR-1" in form_type
+        engine_options = ["pdfplumber"] if is_gstr1_form else ["pdfplumber", "tabula"]
         engine = st.selectbox(
-            "Extraction Engine",
-            ["pdfplumber", "tabula"],
-            index=0 if st.session_state.engine == "pdfplumber" else 1,
-            help="pdfplumber: fast, pure Python. tabula: more accurate but needs Java & slower startup.",
+            "Extraction Engine (GSTR-1 uses pdfplumber only)" if is_gstr1_form else "Extraction Engine",
+            engine_options,
+            index=0 if is_gstr1_form or st.session_state.engine == "pdfplumber" else 1,
+            help=(
+                "GSTR-1 uses pdfplumber because its continuous summary table parser depends on it."
+                if is_gstr1_form else
+                "pdfplumber: fast, pure Python. tabula: more accurate but needs Java & slower startup."
+            ),
         )
         st.session_state.engine = engine
 
@@ -229,11 +257,17 @@ def render_upload_page():
     if st.button(f"📤 Upload {len(uploaded_files or [])} File(s)", type="primary",
                  disabled=not uploaded_files):
         for uf in uploaded_files:
-            file_path = UPLOAD_DIR / uf.name
+            original_name = Path(uf.name).name
+            original_path = Path(original_name)
+            storage_name = (
+                f"{original_path.stem}_{uuid.uuid4().hex[:8]}"
+                f"{original_path.suffix.lower()}"
+            )
+            file_path = UPLOAD_DIR / storage_name
             file_path.write_bytes(uf.getvalue())
 
             st.session_state.uploads.append({
-                "filename": uf.name,
+                "filename": original_name,
                 "path": str(file_path),
                 "size": uf.size,
                 "form_type": form_type,
@@ -310,6 +344,20 @@ def render_processing_page():
                     upload["status"] = "completed"
 
                     meta = result.get("metadata", {})
+                    missing_metadata = []
+                    if not meta.get("gstin"):
+                        missing_metadata.append("GSTIN")
+                    if not meta.get("period"):
+                        missing_metadata.append("filing period")
+                    if not meta.get("year"):
+                        missing_metadata.append("financial year")
+                    if missing_metadata:
+                        st.warning(
+                            f"⚠️ **{upload['filename']}**: Could not detect "
+                            f"{', '.join(missing_metadata)}. Review the metadata "
+                            "before creating a consolidated report."
+                        )
+
                     sections_found = list(result.get("sections", {}).keys())
                     total_rows = sum(
                         s.get("row_count", 0)
@@ -548,6 +596,28 @@ def render_preview_page():
 # ═══════════════════════════════════════════════
 #  CONSOLIDATION PAGE
 # ═══════════════════════════════════════════════
+def _find_duplicate_periods(extractions):
+    groups = {}
+    for extraction in extractions:
+        metadata = extraction.get("metadata", {})
+        gstin = str(metadata.get("gstin", "")).strip().upper()
+        period = str(metadata.get("period", "")).strip().casefold()
+        year = str(metadata.get("year", "")).strip().casefold()
+        form_type = str(extraction.get("form_type", "")).strip()
+
+        if not gstin or not period or not year:
+            continue
+
+        key = (form_type, gstin, year, period)
+        groups.setdefault(key, []).append(extraction.get("filename", "Unknown file"))
+
+    return [
+        {"form_type": key[0], "gstin": key[1], "year": key[2], "period": key[3], "files": files}
+        for key, files in groups.items()
+        if len(files) > 1
+    ]
+
+
 def render_consolidation_page():
     st.markdown('<div class="card"><h2>📅 Yearly Consolidation</h2>'
                 '<p style="color:#94A3B8">Consolidate monthly GSTR-3B extractions into a single report</p></div>',
@@ -611,9 +681,26 @@ def render_consolidation_page():
 
     st.markdown("---")
 
+    duplicate_periods = _find_duplicate_periods(st.session_state.extractions)
+    if duplicate_periods:
+        st.warning(
+            "Duplicate filing periods detected. Review these files before creating a consolidated report."
+        )
+        for duplicate in duplicate_periods:
+            files = ", ".join(f"`{filename}`" for filename in duplicate["files"])
+            st.markdown(
+                f"- **{duplicate['form_type']}** | GSTIN `{duplicate['gstin']}` | "
+                f"{duplicate['period']} {duplicate['year']}: {files}"
+            )
+
     # Consolidation buttons (group by form type first to ensure clean consolidation)
     gstr1_exts = [e for e in st.session_state.extractions if "GSTR-1" in e.get("form_type", "")]
     gstr3b_exts = [e for e in st.session_state.extractions if "GSTR-3B" in e.get("form_type", "")]
+
+    if gstr1_exts and gstr3b_exts:
+        if st.button("🔎 Continue to Perform Reco"):
+            st.session_state.page = "Perform Reco"
+            st.rerun()
     
     col1, col2 = st.columns(2)
     with col1:
@@ -697,3 +784,5 @@ elif page == "Preview":
     render_preview_page()
 elif page == "Consolidation":
     render_consolidation_page()
+elif page == "Perform Reco":
+    render_reconciliation_page(st.session_state.extractions, APP_VERSION)

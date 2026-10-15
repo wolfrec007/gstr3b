@@ -16,7 +16,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Reuse clean_cell from gstr3b_extractor
-from .gstr3b_extractor import clean_cell
+from .gstr3b_extractor import clean_cell, sort_extractions_chronologically
 
 # ──────────────────────────────────────────────────────────────────────
 # Section definitions — ordered as they appear in the GSTR-1 PDF
@@ -492,7 +492,7 @@ def build_gstr1_consolidation_excel(
     merged_sections: Dict[str, List[Dict]] = {}
     summary_rows = []
 
-    for ext in extractions:
+    for ext in sort_extractions_chronologically(extractions):
         meta = ext.get("metadata", {})
         year = meta.get("year", "")
         period = meta.get("period", "")

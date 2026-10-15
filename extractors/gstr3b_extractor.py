@@ -6,6 +6,7 @@ specific section numbers (3.1, 3.1.1, 3.1.2, 4, 5, 5.1, 6).
 Also extracts metadata: GSTIN, Filing Period, Date of ARN.
 """
 
+import calendar
 import re
 import logging
 import pdfplumber
@@ -96,6 +97,26 @@ GSTR3B_SECTIONS = {
         ],
     },
 }
+
+
+def sort_extractions_chronologically(extractions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return extractions ordered by financial year and fiscal month."""
+    month_numbers = {month.lower(): number for number, month in enumerate(calendar.month_name) if month}
+    month_numbers.update({month.lower(): number for number, month in enumerate(calendar.month_abbr) if month})
+
+    def sort_key(extraction: Dict[str, Any]) -> tuple:
+        metadata = extraction.get("metadata", {})
+        year = str(metadata.get("year", ""))
+        year_match = re.search(r"(\d{4})", year)
+        year_number = int(year_match.group(1)) if year_match else float("inf")
+
+        period = str(metadata.get("period", "")).strip().lower()
+        calendar_month = month_numbers.get(period, float("inf"))
+        # GST financial years run from April through March.
+        month_number = (calendar_month - 4) % 12 if calendar_month != float("inf") else calendar_month
+        return year_number, month_number
+
+    return sorted(extractions, key=sort_key)
 
 
 def clean_cell(value) -> str:
@@ -574,7 +595,7 @@ def build_consolidation_excel(
     merged_sections: Dict[str, List[Dict]] = {}
     breakup_rows = []
 
-    for ext in extractions:
+    for ext in sort_extractions_chronologically(extractions):
         meta = ext.get("metadata", {})
         year = meta.get("year", "")
         period = meta.get("period", "")
