@@ -3,10 +3,11 @@ title: GSTR3B
 emoji: 📊
 colorFrom: blue
 colorTo: green
-sdk: streamlit
-sdk_version: "1.30.0"
-app_file: app.py
+sdk: docker
+sdk_version: "3.12"
+app_file: Dockerfile
 pinned: false
+short_description: GSTR-3B PDF to Excel Converter with GSTR-1 Reconciliation
 ---
 
 # GSTR-3B PDF to Excel Converter
